@@ -19,9 +19,12 @@ st.caption("Train a custom multi-layer LSTM language model and generate multi-wo
 # --- Sidebar: Dynamic Model Configuration ---
 st.sidebar.header("⚙️ Model & Training Hyperparameters")
 
-# 1. File Upload (Strictly .txt)
+# 1. Training Data Source Selection
 st.sidebar.subheader("Training Data Source")
-uploaded_file = st.sidebar.file_uploader("Upload Training File (.txt)", type=["txt"])
+data_source_option = st.sidebar.radio(
+    "Choose Data Input Method:",
+    options=["Paste Text Area", "Upload .txt File"]
+)
 
 DEFAULT_TEXT = """This is a sample text for training the model. The model will learn to predict the next word based on this training data.
 This is another sentence for the training. We need enough data to train a good language model.
@@ -29,12 +32,16 @@ Language modeling is an interesting task. We can generate new text after trainin
 Artificial intelligence is a rapidly advancing field. Machine learning is a subset of AI.
 Deep learning uses neural networks. Recurrent neural networks are good for sequence data."""
 
-if uploaded_file is not None:
-    user_data = uploaded_file.read().decode("utf-8")
-    st.sidebar.success(f"Loaded: {uploaded_file.name}")
+if data_source_option == "Upload .txt File":
+    uploaded_file = st.sidebar.file_uploader("Upload Training File (.txt)", type=["txt"])
+    if uploaded_file is not None:
+        user_data = uploaded_file.read().decode("utf-8")
+        st.sidebar.success(f"Loaded file: {uploaded_file.name}")
+    else:
+        user_data = DEFAULT_TEXT
+        st.sidebar.info("Upload a .txt file above or using default text.")
 else:
-    user_data = DEFAULT_TEXT
-    st.sidebar.info("Using default text corpus. Upload a .txt file to customize.")
+    user_data = st.sidebar.text_area("Training Data Corpus", value=DEFAULT_TEXT, height=200)
 
 # 2. Dynamic Architecture Settings
 st.sidebar.subheader("Architecture Settings")
@@ -114,14 +121,14 @@ with tab1:
             X, y, max_seq_len, total_words, tokenizer = prepare_sequences(user_data)
             
             if X is None or len(X) == 0:
-                st.error("Invalid or empty training file. Please upload a valid text file.")
+                st.error("Invalid or empty training content. Please enter text or upload a valid file.")
                 st.stop()
 
         # Build Dynamic Multi-Layer Model
         model = Sequential()
         model.add(Embedding(total_words, embedding_dim, input_length=max_seq_len - 1))
         
-        # Add variable number of LSTM layers
+        # Add dynamic LSTM layers
         for idx, units in enumerate(lstm_units_list):
             is_last_layer = (idx == len(lstm_units_list) - 1)
             model.add(LSTM(units, return_sequences=not is_last_layer))
@@ -133,18 +140,24 @@ with tab1:
         optimizer = Adam(learning_rate=learning_rate)
         model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
 
-        # Build model weights with dummy input to calculate exact parameter shapes
-        model.build(input_shape=(None, max_seq_len - 1))
+        # Pass a dummy tensor through the model to build shapes safely across Keras versions
+        dummy_input = tf.zeros((1, max_seq_len - 1), dtype=tf.int32)
+        _ = model(dummy_input)
 
         # Show Architectural Summary & Weights Breakdown
         st.subheader("📋 Architectural & Parameter Breakdown")
         
         summary_data = []
         for layer in model.layers:
+            try:
+                out_shape = str(layer.output_shape)
+            except AttributeError:
+                out_shape = str(layer.compute_output_shape((None, max_seq_len - 1)))
+
             summary_data.append({
                 "Layer Name": layer.name,
                 "Layer Type": layer.__class__.__name__,
-                "Output Shape": str(layer.output_shape),
+                "Output Shape": out_shape,
                 "Param #": f"{layer.count_params():,}"
             })
         
